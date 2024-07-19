@@ -1,12 +1,19 @@
 import fitz  # PyMuPDF
+import torch
+from transformers import pipeline, AutoTokenizer, AutoModelForQuestionAnswering
+from sentence_transformers import SentenceTransformer, util
 import spacy
-from collections import defaultdict
-import numpy as np
-from sklearn.metrics.pairwise import cosine_similarity
-from sklearn.feature_extraction.text import TfidfVectorizer
 
 # Load SpaCy model
 nlp = spacy.load("en_core_web_sm")
+
+# Load QA model
+qa_model_name = "distilbert-base-uncased-distilled-squad"
+qa_tokenizer = AutoTokenizer.from_pretrained(qa_model_name)
+qa_model = AutoModelForQuestionAnswering.from_pretrained(qa_model_name)
+
+# Load sentence transformer model for similarity search
+sentence_model = SentenceTransformer('paraphrase-MiniLM-L6-v2')
 
 # Function to extract text from PDF using PyMuPDF
 def extract_text_from_pdf(pdf_path):
@@ -29,46 +36,50 @@ def analyze_text(text):
     }
     return data
 
-# Function to calculate cosine similarity between the question and sentences
-def find_most_relevant_sentences(question, sentences):
-    vectorizer = TfidfVectorizer().fit_transform([question] + sentences)
-    vectors = vectorizer.toarray()
-    cosine_matrix = cosine_similarity(vectors)
-    similarity_scores = cosine_matrix[0][1:]  # Ignore self-similarity
-    most_relevant_indices = similarity_scores.argsort()[-5:][::-1]  # Top 5 sentences
-    return [sentences[i] for i in most_relevant_indices]
+# Function to perform QA using transformers
+def answer_question_with_qa_model(question, context):
+    qa_pipeline = pipeline('question-answering', model=qa_model, tokenizer=qa_tokenizer)
+    result = qa_pipeline(question=question, context=context)
+    return result['answer']
+
+# Function to find the most relevant paragraph for the question
+def find_relevant_paragraph(question, paragraphs):
+    question_embedding = sentence_model.encode(question, convert_to_tensor=True)
+    paragraph_embeddings = sentence_model.encode(paragraphs, convert_to_tensor=True)
+    scores = util.pytorch_cos_sim(question_embedding, paragraph_embeddings)[0]
+    best_idx = torch.argmax(scores).item()
+    return paragraphs[best_idx]
 
 # Function to answer questions based on the analyzed data
-def answer_question(question, analyzed_data):
-    question_nlp = nlp(question)
-    entities = analyzed_data["Entities"]
+def answer_question(question, text, analyzed_data):
     sentences = analyzed_data["Sentences"]
-
-    answer = []
-    if any(token.lemma_ in ["number", "amount"] for token in question_nlp):
-        answer = analyzed_data["Numbers"]
-    elif any(token.lemma_ in ["date", "time"] for token in question_nlp):
-        answer = analyzed_data["Dates"]
-    elif any(token.lemma_ in ["organization", "company"] for token in question_nlp):
-        answer = analyzed_data["Organizations"]
-    else:
-        # Find relevant sentences using cosine similarity
-        relevant_sentences = find_most_relevant_sentences(question, sentences)
-        answer = relevant_sentences
     
-    return answer if answer else ["Sorry, I couldn't find an answer to your question."]
+    # Split text into paragraphs for better context extraction
+    paragraphs = text.split('\n\n')
+    
+    # Find the most relevant paragraph for the question
+    relevant_paragraph = find_relevant_paragraph(question, paragraphs)
+    
+    # Answer the question using the QA model
+    answer = answer_question_with_qa_model(question, relevant_paragraph)
+    
+    return answer
 
 # Main function to orchestrate the process
-def main(pdf_path, question):
+def main(pdf_path, questions):
     # Extract text from PDF
     text = extract_text_from_pdf(pdf_path)
     
     # Analyze text using SpaCy
     analyzed_data = analyze_text(text)
     
-    # Answer the question
-    answer = answer_question(question, analyzed_data)
-    return answer
+    # Answer the questions
+    answers = {}
+    for question in questions:
+        answer = answer_question(question, text, analyzed_data)
+        answers[question] = answer
+    
+    return answers
 
 # Example usage
 if __name__ == "__main__":
@@ -80,9 +91,8 @@ if __name__ == "__main__":
         "Tell me more about the document content."
     ]
     
-    for question in questions:
+    answers = main(pdf_path, questions)
+    for question, answer in answers.items():
         print(f"Question: {question}")
-        answers = main(pdf_path, question)
-        for ans in answers:
-            print(ans)
+        print(f"Answer: {answer}")
         print("\n" + "="*50 + "\n")
