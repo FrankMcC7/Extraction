@@ -43,37 +43,25 @@ def analyze_text(text):
     }
     return data
 
-# Function to enhance table data with text analysis
-def enhance_tables_with_text(tables, text_analysis):
-    enhanced_tables = []
-    for table in tables:
-        # Convert table to DataFrame if it's not already
-        if not isinstance(table, pd.DataFrame):
-            table = pd.DataFrame(table)
-        
-        # Add new columns for entities, dates, and organizations if not present
-        if "Entities" not in table.columns:
-            table["Entities"] = ""
-        if "Dates" not in table.columns:
-            table["Dates"] = ""
-        if "Organizations" not in table.columns:
-            table["Organizations"] = ""
-        
-        # Enhance table rows with text analysis data
-        for i, row in table.iterrows():
-            entities = [ent[0] for ent in text_analysis["Entities"] if ent[0] in row.to_string()]
-            dates = [date for date in text_analysis["Dates"] if date in row.to_string()]
-            organizations = [org for org in text_analysis["Organizations"] if org in row.to_string()]
-            
-            table.at[i, "Entities"] = ", ".join(entities)
-            table.at[i, "Dates"] = ", ".join(dates)
-            table.at[i, "Organizations"] = ", ".join(organizations)
-        
-        enhanced_tables.append(table)
-    return enhanced_tables
+# Function to build tables from analyzed text
+def build_tables_from_text(text_analysis):
+    tables = []
+    current_table = []
+    
+    for sentence in text_analysis["Sentences"]:
+        if "Table" in sentence:  # Simple heuristic to detect table start
+            if current_table:
+                tables.append(pd.DataFrame(current_table))
+                current_table = []
+        current_table.append(sentence.split())  # Simple split, might need more sophisticated parsing
+    
+    if current_table:
+        tables.append(pd.DataFrame(current_table))
+    
+    return tables
 
 # Function to save extracted data to Excel
-def save_data_to_excel(data, tables, output_path):
+def save_data_to_excel(data, original_tables, rebuilt_tables, output_path):
     with pd.ExcelWriter(output_path, engine='openpyxl') as writer:
         # Save sentences
         df_sentences = pd.DataFrame(data["Sentences"], columns=["Sentences"])
@@ -95,26 +83,30 @@ def save_data_to_excel(data, tables, output_path):
         df_organizations = pd.DataFrame(data["Organizations"], columns=["Organizations"])
         df_organizations.to_excel(writer, sheet_name="Organizations", index=False)
 
-        # Save enhanced tables
-        for i, table in enumerate(tables, start=1):
-            table.to_excel(writer, sheet_name=f"Enhanced_Table_{i}", index=False)
+        # Save original tables
+        for i, table in enumerate(original_tables, start=1):
+            table.to_excel(writer, sheet_name=f"Original_Table_{i}", index=False)
+
+        # Save rebuilt tables
+        for i, table in enumerate(rebuilt_tables, start=1):
+            table.to_excel(writer, sheet_name=f"Rebuilt_Table_{i}", index=False)
 
 # Main function to orchestrate the process
 def main(pdf_path, output_excel_path):
     # Extract text and tables from PDF
-    text, tables = extract_text_and_tables_from_pdf(pdf_path)
+    text, original_tables = extract_text_and_tables_from_pdf(pdf_path)
     
     # Analyze text using SpaCy
     analyzed_data = analyze_text(text)
     
-    # Enhance tables with text analysis data
-    enhanced_tables = enhance_tables_with_text(tables, analyzed_data)
+    # Build tables from analyzed text
+    rebuilt_tables = build_tables_from_text(analyzed_data)
     
-    # Save analyzed data and enhanced tables to Excel
-    save_data_to_excel(analyzed_data, enhanced_tables, output_excel_path)
+    # Save analyzed data and tables to Excel
+    save_data_to_excel(analyzed_data, original_tables, rebuilt_tables, output_excel_path)
 
 # Example usage
 if __name__ == "__main__":
     pdf_path = '/mnt/data/file-P4fJ4Rjb45dm72fLsbZshdRn'  # Use the uploaded file path
-    output_excel_path = '/mnt/data/analyzed_data_with_enhanced_tables.xlsx'
+    output_excel_path = '/mnt/data/analyzed_data_with_built_tables.xlsx'
     main(pdf_path, output_excel_path)
