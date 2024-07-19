@@ -108,7 +108,7 @@ def clean_and_format_tables(tables):
                 except ValueError:
                     logging.warning(f"Could not convert column {col} to numeric")
                 
-        cleaned_tables.append(table)
+        cleaned_tables.append((None, None, table))  # Ensure the cleaned table tuple has three elements
     return cleaned_tables
 
 # Function to detect and correct rotated text (example implementation)
@@ -209,6 +209,6 @@ def main(pdf_path, output_excel_path):
 
 # Example usage
 if __name__ == "__main__":
-    pdf_path = '/mnt/data/file-hNrDN4sQ7MsA6yZZ7x0voZ9W'
+    pdf_path = '/mnt/data/file-xuDiR3z6kaLvXqzlsLozwU6k'
     output_excel_path = 'isitbetter.xlsx'
     main(pdf_path, output_excel_path)
