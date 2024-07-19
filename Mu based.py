@@ -24,13 +24,14 @@ def extract_tables_with_pdfplumber(pdf_path):
             for table in page.extract_tables():
                 if table:  # Ensure table is not None
                     df = pd.DataFrame(table[1:], columns=table[0])
-                    tables.append((page_num, table.bbox, df))
+                    bbox = page.find_tables()[0].bbox if page.find_tables() else None
+                    tables.append((page_num, bbox, df))
     return tables
 
 # Function to extract tables using Camelot
 def extract_tables_with_camelot(pdf_path):
     tables = camelot.read_pdf(pdf_path, pages='all', flavor='stream')
-    tables = [(table.page, table._bbox, table.df) for table in tables]  # Convert to DataFrame
+    tables = [(int(table.page), table._bbox, table.df) for table in tables]  # Convert to DataFrame
     return tables
 
 # Function to extract tables using Tabula
@@ -70,7 +71,7 @@ def associate_tables_with_text(tables, texts_around_tables, keywords):
         for page_num, text_block, bbox in texts_around_tables:
             if keyword.lower() in text_block.lower():
                 for table_page, table_bbox, table in tables:
-                    if table_page == page_num:
+                    if table_page == page_num and table_bbox:
                         distance = calculate_distance(bbox, table_bbox)
                         if distance < min_distance:
                             min_distance = distance
@@ -84,7 +85,7 @@ def associate_tables_with_text(tables, texts_around_tables, keywords):
 # Function to evaluate the quality of extracted tables using heuristics
 def evaluate_extraction(tables):
     scores = []
-    for _, table in tables:
+    for _, _, table in tables:
         if not table.empty:
             # Simple heuristic: score based on number of rows and columns
             score = table.shape[0] * table.shape[1]
