@@ -108,7 +108,7 @@ def clean_and_format_tables(tables):
                 except ValueError:
                     logging.warning(f"Could not convert column {col} to numeric")
                 
-        cleaned_tables.append((None, None, table))  # Ensure the cleaned table tuple has three elements
+        cleaned_tables.append(table)  # Append just the table DataFrame
     return cleaned_tables
 
 # Function to detect and correct rotated text (example implementation)
@@ -124,7 +124,7 @@ def detect_and_correct_rotated_text(table):
 def merge_tables(tables):
     merged_tables = []
     prev_table = None
-    for i, (_, _, table) in enumerate(tables):
+    for i, table in enumerate(tables):
         if prev_table is not None and (table.columns == prev_table.columns).all():
             prev_table = pd.concat([prev_table, table], ignore_index=True)
         else:
