@@ -209,6 +209,6 @@ def main(pdf_path, output_excel_path):
 
 # Example usage
 if __name__ == "__main__":
-    pdf_path = '/mnt/data/file-riUbwiTDTVMZm3D7lNTmEDwX'
+    pdf_path = '/mnt/data/file-ipa4vbJCU8AFA9QZFMUEPAuI'
     output_excel_path = 'isitbetter.xlsx'
     main(pdf_path, output_excel_path)
