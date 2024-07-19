@@ -10,7 +10,7 @@ from openpyxl import Workbook
 from openpyxl.utils import get_column_letter
 from openpyxl.comments import Comment
 from tqdm import tqdm
-from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import ProcessPoolExecutor, as_completed
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -167,28 +167,31 @@ def save_tables_to_excel(tables, output_path):
 def main(pdf_path, output_excel_path):
     # Extract tables using different methods in parallel
     logging.info("Starting table extraction...")
+    futures = []
     with ProcessPoolExecutor() as executor:
-        future_pdfplumber = executor.submit(extract_tables_with_pdfplumber, pdf_path)
-        future_camelot = executor.submit(extract_tables_with_camelot, pdf_path)
-        future_tabula = executor.submit(extract_tables_with_tabula, pdf_path)
-
-        tables_pdfplumber = future_pdfplumber.result()
-        tables_camelot = future_camelot.result()
-        tables_tabula = future_tabula.result()
+        futures.append(executor.submit(extract_tables_with_pdfplumber, pdf_path))
+        futures.append(executor.submit(extract_tables_with_camelot, pdf_path))
+        futures.append(executor.submit(extract_tables_with_tabula, pdf_path))
+    
+        results = []
+        for future in as_completed(futures):
+            try:
+                result = future.result(timeout=600)  # Increase timeout as needed
+                results.append(result)
+            except Exception as e:
+                logging.error(f"Error in one of the extraction methods: {e}")
+    
+    if not results:
+        raise RuntimeError("All extraction methods failed.")
     
     logging.info("Evaluating extraction quality...")
     # Evaluate the quality of each extraction method using heuristics
-    score_pdfplumber = evaluate_extraction(tables_pdfplumber)
-    score_camelot = evaluate_extraction(tables_camelot)
-    score_tabula = evaluate_extraction(tables_tabula)
+    scores = [evaluate_extraction(result) for result in results]
     
     logging.info("Choosing the best extraction method...")
     # Choose the best extraction method based on heuristic score
-    best_method = max([(tables_pdfplumber, score_pdfplumber), 
-                       (tables_camelot, score_camelot),
-                       (tables_tabula, score_tabula)], key=lambda x: x[1])
-
-    best_tables = best_method[0]
+    best_index = np.argmax(scores)
+    best_tables = results[best_index]
 
     logging.info("Cleaning and formatting tables...")
     # Clean and format tables
@@ -205,6 +208,5 @@ def main(pdf_path, output_excel_path):
 
 # Example usage
 if __name__ == "__main__":
-    pdf_path = 'path_to_your_pdf_file.pdf'
-    output_excel_path = 'path_to_save_excel_file.xlsx'
-    main(pdf_path, output_excel_path)
+    pdf_path = '/mnt/data/file-hNrDN4sQ7MsA6yZZ7x0voZ9W'
+    output_excel_path = '
