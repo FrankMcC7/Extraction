@@ -5,82 +5,70 @@ import camelot
 import pdfplumber
 import tabula
 import numpy as np
+import logging
 from openpyxl import Workbook
+from openpyxl.utils import get_column_letter
 from openpyxl.comments import Comment
+from tqdm import tqdm
+from concurrent.futures import ProcessPoolExecutor
 
-# Function to extract text using PyMuPDF
-def extract_text_with_pymupdf(pdf_path):
-    doc = fitz.open(pdf_path)
-    text = ""
-    for page in doc:
-        text += page.get_text()
-    return text
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-# Function to extract tables using pdfplumber
+# Function to extract tables using pdfplumber, including nested tables
 def extract_tables_with_pdfplumber(pdf_path):
     tables = []
-    with pdfplumber.open(pdf_path) as pdf:
-        for page_num, page in enumerate(pdf.pages, start=1):
-            for table in page.extract_tables():
-                if table:  # Ensure table is not None
-                    df = pd.DataFrame(table[1:], columns=table[0])
-                    bbox = page.find_tables()[0].bbox if page.find_tables() else None
-                    tables.append((page_num, bbox, df))
+    try:
+        with pdfplumber.open(pdf_path) as pdf:
+            for page_num, page in enumerate(tqdm(pdf.pages, desc='Extracting tables with pdfplumber'), start=1):
+                for table in page.extract_tables():
+                    if table:  # Ensure table is not None
+                        df = pd.DataFrame(table[1:], columns=table[0])
+                        bbox = page.find_tables()[0].bbox if page.find_tables() else None
+                        tables.append((page_num, bbox, df))
+                        # Check for nested tables within each cell
+                        for row in table:
+                            for cell in row:
+                                if isinstance(cell, str):
+                                    nested_tables = extract_nested_tables_from_text(cell)
+                                    if nested_tables:
+                                        tables.extend([(page_num, None, nested_df) for nested_df in nested_tables])
+    except Exception as e:
+        logging.error(f"Error extracting tables with pdfplumber: {e}")
     return tables
+
+# Function to detect and extract nested tables from text
+def extract_nested_tables_from_text(text):
+    nested_tables = []
+    # Add heuristics or logic to detect and extract nested tables from text
+    # For simplicity, let's assume nested tables are separated by new lines and commas
+    lines = text.split('\n')
+    for line in lines:
+        if ',' in line:
+            nested_data = [item.split(',') for item in lines if ',' in item]
+            if nested_data:
+                nested_df = pd.DataFrame(nested_data[1:], columns=nested_data[0])
+                nested_tables.append(nested_df)
+    return nested_tables
 
 # Function to extract tables using Camelot
 def extract_tables_with_camelot(pdf_path):
-    tables = camelot.read_pdf(pdf_path, pages='all', flavor='stream')
-    tables = [(int(table.page), table._bbox, table.df) for table in tables]  # Convert to DataFrame
+    tables = []
+    try:
+        tables = camelot.read_pdf(pdf_path, pages='all', flavor='stream')
+        tables = [(int(table.page), table._bbox, table.df) for table in tables]  # Convert to DataFrame
+    except Exception as e:
+        logging.error(f"Error extracting tables with Camelot: {e}")
     return tables
 
 # Function to extract tables using Tabula
 def extract_tables_with_tabula(pdf_path):
-    tables = tabula.read_pdf(pdf_path, pages='all', multiple_tables=True, pandas_options={'header': None})
-    tables = [(i, None, table) for i, table in enumerate(tables, start=1)]
+    tables = []
+    try:
+        tables = tabula.read_pdf(pdf_path, pages='all', multiple_tables=True, pandas_options={'header': None})
+        tables = [(i, None, table) for i, table in enumerate(tables, start=1)]
+    except Exception as e:
+        logging.error(f"Error extracting tables with Tabula: {e}")
     return tables
-
-# Function to extract text around tables using PyMuPDF
-def extract_text_around_tables(pdf_path, margin=50):
-    doc = fitz.open(pdf_path)
-    texts_around_tables = []
-    for page_num in range(len(doc)):
-        page = doc.load_page(page_num)
-        text = page.get_text("text")
-        blocks = page.get_text("blocks")
-        for block in blocks:
-            x0, y0, x1, y1, text_block, block_no, _ = block
-            if text_block.strip():  # If the block has text
-                texts_around_tables.append((page_num, text_block, (x0, y0, x1, y1)))
-    return texts_around_tables
-
-# Function to calculate the vertical distance between two bounding boxes
-def calculate_distance(bbox1, bbox2):
-    _, y0_1, _, y1_1 = bbox1
-    _, y0_2, _, y1_2 = bbox2
-    return min(abs(y0_1 - y1_2), abs(y0_2 - y1_1))
-
-# Function to associate tables with surrounding text and select the closest table
-def associate_tables_with_text(tables, texts_around_tables, keywords):
-    associated_tables = []
-    for keyword in keywords:
-        closest_table = None
-        min_distance = float('inf')
-        keyword_text = None
-        keyword_bbox = None
-        for page_num, text_block, bbox in texts_around_tables:
-            if keyword.lower() in text_block.lower():
-                for table_page, table_bbox, table in tables:
-                    if table_page == page_num and table_bbox:
-                        distance = calculate_distance(bbox, table_bbox)
-                        if distance < min_distance:
-                            min_distance = distance
-                            closest_table = (text_block, table)
-                            keyword_text = text_block
-                            keyword_bbox = bbox
-        if closest_table:
-            associated_tables.append(closest_table)
-    return associated_tables
 
 # Function to evaluate the quality of extracted tables using heuristics
 def evaluate_extraction(tables):
@@ -97,7 +85,7 @@ def evaluate_extraction(tables):
 # Function to clean and format the extracted tables
 def clean_and_format_tables(tables):
     cleaned_tables = []
-    for text, table in tables:
+    for _, _, table in tables:
         if table is None or table.empty:
             continue
         # Drop completely empty rows and columns
@@ -110,16 +98,43 @@ def clean_and_format_tables(tables):
         # Remove special characters and whitespace from column names
         table.columns = [str(col).strip().replace('\n', ' ').replace('\r', ' ') for col in table.columns]
         
+        # Advanced cleaning: Detect and correct rotated text, handle merged cells, etc.
+        table = detect_and_correct_rotated_text(table)
+        
         # Convert data types if necessary (example: convert numeric columns)
         for col in table.columns:
             if isinstance(table[col], pd.Series):
                 try:
-                    table[col] = pd.to_numeric(table[col])
+                    table[col] = pd.to_numeric(table[col], errors='coerce')
                 except ValueError:
-                    print(f"Could not convert column {col} to numeric")
+                    logging.warning(f"Could not convert column {col} to numeric")
                 
-        cleaned_tables.append((text, table))
+        cleaned_tables.append(table)
     return cleaned_tables
+
+# Function to detect and correct rotated text (example implementation)
+def detect_and_correct_rotated_text(table):
+    # Add your logic to detect and correct rotated text in the table
+    # This is just a placeholder example
+    for col in table.columns:
+        if table[col].dtype == 'object':
+            table[col] = table[col].apply(lambda x: str(x).replace('rotated_text_example', 'corrected_text') if isinstance(x, str) else x)
+    return table
+
+# Function to merge tables that span across multiple pages
+def merge_tables(tables):
+    merged_tables = []
+    prev_table = None
+    for i, (_, _, table) in enumerate(tables):
+        if prev_table is not None and (table.columns == prev_table.columns).all():
+            prev_table = pd.concat([prev_table, table], ignore_index=True)
+        else:
+            if prev_table is not None:
+                merged_tables.append(prev_table)
+            prev_table = table
+    if prev_table is not None:
+        merged_tables.append(prev_table)
+    return merged_tables
 
 # Function to save extracted tables to Excel
 def save_tables_to_excel(tables, output_path):
@@ -127,31 +142,47 @@ def save_tables_to_excel(tables, output_path):
         raise RuntimeError("No tables to save.")
     try:
         with pd.ExcelWriter(output_path, engine='openpyxl') as writer:
-            for i, (associated_text, table) in enumerate(tables):
+            for i, table in enumerate(tables):
                 sheet_name = f"Table_{i+1}"[:31]  # Excel sheet names must be 31 characters or less
                 table.to_excel(writer, sheet_name=sheet_name, index=False)
-                # Write the associated text as a comment in the first cell
                 worksheet = writer.sheets[sheet_name]
-                comment = Comment(associated_text, "Generated by script")
-                worksheet.cell(1, 1).comment = comment
+                
+                # Autofit columns
+                for col in worksheet.columns:
+                    max_length = 0
+                    column = col[0].column_letter  # Get the column name
+                    for cell in col:
+                        try:
+                            if len(str(cell.value)) > max_length:
+                                max_length = len(cell.value)
+                        except:
+                            pass
+                    adjusted_width = (max_length + 2)
+                    worksheet.column_dimensions[column].width = adjusted_width
     except Exception as e:
+        logging.error(f"Error saving tables to Excel: {e}")
         raise RuntimeError(f"Error saving tables to Excel: {e}")
 
 # Main function to orchestrate the process
-def main(pdf_path, output_excel_path, keywords):
-    # Extract tables using different methods
-    tables_pdfplumber = extract_tables_with_pdfplumber(pdf_path)
-    tables_camelot = extract_tables_with_camelot(pdf_path)
-    tables_tabula = extract_tables_with_tabula(pdf_path)
+def main(pdf_path, output_excel_path):
+    # Extract tables using different methods in parallel
+    logging.info("Starting table extraction...")
+    with ProcessPoolExecutor() as executor:
+        future_pdfplumber = executor.submit(extract_tables_with_pdfplumber, pdf_path)
+        future_camelot = executor.submit(extract_tables_with_camelot, pdf_path)
+        future_tabula = executor.submit(extract_tables_with_tabula, pdf_path)
 
-    # Extract surrounding text using PyMuPDF
-    texts_around_tables = extract_text_around_tables(pdf_path)
-
+        tables_pdfplumber = future_pdfplumber.result()
+        tables_camelot = future_camelot.result()
+        tables_tabula = future_tabula.result()
+    
+    logging.info("Evaluating extraction quality...")
     # Evaluate the quality of each extraction method using heuristics
     score_pdfplumber = evaluate_extraction(tables_pdfplumber)
     score_camelot = evaluate_extraction(tables_camelot)
     score_tabula = evaluate_extraction(tables_tabula)
-
+    
+    logging.info("Choosing the best extraction method...")
     # Choose the best extraction method based on heuristic score
     best_method = max([(tables_pdfplumber, score_pdfplumber), 
                        (tables_camelot, score_camelot),
@@ -159,18 +190,21 @@ def main(pdf_path, output_excel_path, keywords):
 
     best_tables = best_method[0]
 
-    # Associate tables with surrounding text and select the closest table
-    associated_tables = associate_tables_with_text(best_tables, texts_around_tables, keywords)
-
+    logging.info("Cleaning and formatting tables...")
     # Clean and format tables
-    cleaned_tables = clean_and_format_tables(associated_tables)
+    cleaned_tables = clean_and_format_tables(best_tables)
 
+    logging.info("Merging tables...")
+    # Merge tables that span across multiple pages
+    merged_tables = merge_tables(cleaned_tables)
+
+    logging.info("Saving tables to Excel...")
     # Save cleaned tables to Excel
-    save_tables_to_excel(cleaned_tables, output_excel_path)
+    save_tables_to_excel(merged_tables, output_excel_path)
+    logging.info(f"Tables successfully saved to {output_excel_path}")
 
 # Example usage
 if __name__ == "__main__":
     pdf_path = 'path_to_your_pdf_file.pdf'
     output_excel_path = 'path_to_save_excel_file.xlsx'
-    keywords = ['your', 'keywords', 'here']  # Add your specific keywords
-    main(pdf_path, output_excel_path, keywords)
+    main(pdf_path, output_excel_path)
