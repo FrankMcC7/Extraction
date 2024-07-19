@@ -79,7 +79,11 @@ def clean_and_format_tables(tables):
 def extract_text_around_tables(pdf_path, tables):
     texts = []
     doc = fitz.open(pdf_path)
+    print(f"Document has {doc.page_count} pages.")  # Debug statement
     for page_num, bbox, table in tables:
+        if page_num <= 0 or page_num > doc.page_count:
+            print(f"Skipping invalid page number: {page_num}")  # Debug statement
+            continue
         page = doc.load_page(page_num - 1)  # PyMuPDF uses 0-based indexing
         text = page.get_text("text")
         doc_nlp = nlp(text)
@@ -137,6 +141,6 @@ def main(pdf_path, output_excel_path):
 
 # Example usage
 if __name__ == "__main__":
-    pdf_path = 'path_to_your_pdf_file.pdf'
-    output_excel_path = 'path_to_save_excel_file.xlsx'
+    pdf_path = '/mnt/data/file-TZ4zE8ty41vWPu8h80zZf8Dg'  # Use the uploaded file path
+    output_excel_path = 'abc.xlsx'
     main(pdf_path, output_excel_path)
