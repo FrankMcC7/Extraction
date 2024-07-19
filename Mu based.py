@@ -63,7 +63,7 @@ def extract_tables_with_camelot(pdf_path):
 def extract_tables_with_tabula(pdf_path):
     tables = []
     try:
-        tables = tabula.read_pdf(pdf_path, pages='all', multiple_tables=True, pandas_options={'header': None})
+        tables = tabula.read_pdf(pdf_path, pages='all', multiple_tables=True, pandas_options={'header': 0})
         tables = [(i, None, table) for i, table in enumerate(tables, start=1)]
     except Exception as e:
         logging.error(f"Error extracting tables with Tabula: {e}")
@@ -209,6 +209,6 @@ def main(pdf_path, output_excel_path):
 
 # Example usage
 if __name__ == "__main__":
-    pdf_path = '/mnt/data/file-ipa4vbJCU8AFA9QZFMUEPAuI'
+    pdf_path = '/mnt/data/file-o9fWL9t12shXkNUUWLKYMnCv'
     output_excel_path = 'isitbetter.xlsx'
     main(pdf_path, output_excel_path)
