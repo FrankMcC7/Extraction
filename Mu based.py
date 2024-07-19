@@ -125,7 +125,7 @@ def merge_tables(tables):
     merged_tables = []
     prev_table = None
     for i, table in enumerate(tables):
-        if prev_table is not None and (table.columns == prev_table.columns).all():
+        if prev_table is not None and list(table.columns) == list(prev_table.columns):
             prev_table = pd.concat([prev_table, table], ignore_index=True)
         else:
             if prev_table is not None:
@@ -209,6 +209,6 @@ def main(pdf_path, output_excel_path):
 
 # Example usage
 if __name__ == "__main__":
-    pdf_path = '/mnt/data/file-xuDiR3z6kaLvXqzlsLozwU6k'
+    pdf_path = '/mnt/data/file-riUbwiTDTVMZm3D7lNTmEDwX'
     output_excel_path = 'isitbetter.xlsx'
     main(pdf_path, output_excel_path)
