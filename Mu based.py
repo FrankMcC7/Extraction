@@ -27,13 +27,19 @@ def extract_tables_with_pdfplumber(pdf_path):
 # Function to extract tables using Camelot
 def extract_tables_with_camelot(pdf_path):
     tables = camelot.read_pdf(pdf_path, pages='all', flavor='stream')
-    tables = [(int(table.page), table._bbox, table.df) for table in tables]  # Convert to DataFrame
+    if not tables:
+        print("No tables found with Camelot.")
+    tables = [(int(table.page), table._bbox, table.df) for table in tables if not table.df.empty]  # Convert to DataFrame
     return tables
 
 # Function to extract tables using Tabula
 def extract_tables_with_tabula(pdf_path):
-    tables = tabula.read_pdf(pdf_path, pages='all', multiple_tables=True, pandas_options={'header': None})
-    tables = [(i, None, table) for i, table in enumerate(tables, start=1)]
+    try:
+        tables = tabula.read_pdf(pdf_path, pages='all', multiple_tables=True, pandas_options={'header': None})
+        tables = [(i, None, table) for i, table in enumerate(tables, start=1) if not table.empty]
+    except Exception as e:
+        print(f"Error extracting tables with Tabula: {e}")
+        tables = []
     return tables
 
 # Function to evaluate the quality of extracted tables using heuristics
@@ -108,6 +114,11 @@ def save_tables_to_excel(tables, texts, output_path):
                 sheet = writer.sheets[sheet_name]
                 sheet.cell(row=1, column=table.shape[1] + 2, value="Context")
                 sheet.cell(row=2, column=table.shape[1] + 2, value=text)
+        # Ensure at least one sheet is visible
+        if not writer.sheets:
+            wb = writer.book
+            wb.create_sheet("EmptySheet")
+            wb.save(output_path)
     except Exception as e:
         raise RuntimeError(f"Error saving tables to Excel: {e}")
 
@@ -129,18 +140,30 @@ def main(pdf_path, output_excel_path):
                        (tables_tabula, score_tabula)], key=lambda x: x[1])
 
     best_tables = best_method[0]
+    
+    if not best_tables:
+        print("No tables were extracted.")
+        return
 
     # Clean and format tables
     cleaned_tables = clean_and_format_tables(best_tables)
+    
+    if not cleaned_tables:
+        print("No cleaned tables available.")
+        return
 
     # Extract text around tables
     texts = extract_text_around_tables(pdf_path, best_tables)
+    
+    if not texts:
+        print("No context text extracted.")
+        return
 
     # Save cleaned tables to Excel with annotations
     save_tables_to_excel(cleaned_tables, texts, output_excel_path)
 
 # Example usage
 if __name__ == "__main__":
-    pdf_path = '/mnt/data/file-TZ4zE8ty41vWPu8h80zZf8Dg'  # Use the uploaded file path
-    output_excel_path = 'abc.xlsx'
+    pdf_path = '/mnt/data/file-xxHEBAdBYpiFDAK8DlMi61ZQ'  # Use the uploaded file path
+    output_excel_path = 'aaa.xlsx'
     main(pdf_path, output_excel_path)
