@@ -24,18 +24,19 @@ def extract_tables_with_pdfplumber(pdf_path):
             for table in page.extract_tables():
                 if table:  # Ensure table is not None
                     df = pd.DataFrame(table[1:], columns=table[0])
-                    tables.append(df)
+                    tables.append((page_num, table.bbox, df))
     return tables
 
 # Function to extract tables using Camelot
 def extract_tables_with_camelot(pdf_path):
     tables = camelot.read_pdf(pdf_path, pages='all', flavor='stream')
-    tables = [table.df for table in tables]  # Convert to DataFrame
+    tables = [(table.page, table._bbox, table.df) for table in tables]  # Convert to DataFrame
     return tables
 
 # Function to extract tables using Tabula
 def extract_tables_with_tabula(pdf_path):
-    tables = tabula.read_pdf(pdf_path, pages='all', multiple_tables=True)
+    tables = tabula.read_pdf(pdf_path, pages='all', multiple_tables=True, pandas_options={'header': None})
+    tables = [(i, None, table) for i, table in enumerate(tables, start=1)]
     return tables
 
 # Function to extract text around tables using PyMuPDF
@@ -52,23 +53,38 @@ def extract_text_around_tables(pdf_path, margin=50):
                 texts_around_tables.append((page_num, text_block, (x0, y0, x1, y1)))
     return texts_around_tables
 
-# Function to associate tables with surrounding text
-def associate_tables_with_text(tables, texts_around_tables):
+# Function to calculate the vertical distance between two bounding boxes
+def calculate_distance(bbox1, bbox2):
+    _, y0_1, _, y1_1 = bbox1
+    _, y0_2, _, y1_2 = bbox2
+    return min(abs(y0_1 - y1_2), abs(y0_2 - y1_1))
+
+# Function to associate tables with surrounding text and select the closest table
+def associate_tables_with_text(tables, texts_around_tables, keywords):
     associated_tables = []
-    for table in tables:
-        if not table.empty:
-            associated_text = "No associated text found"
-            for page_num, text_block, bbox in texts_around_tables:
-                if any(keyword in text_block for keyword in keywords):
-                    associated_text = text_block
-                    break
-            associated_tables.append((associated_text, table))
+    for keyword in keywords:
+        closest_table = None
+        min_distance = float('inf')
+        keyword_text = None
+        keyword_bbox = None
+        for page_num, text_block, bbox in texts_around_tables:
+            if keyword.lower() in text_block.lower():
+                for table_page, table_bbox, table in tables:
+                    if table_page == page_num:
+                        distance = calculate_distance(bbox, table_bbox)
+                        if distance < min_distance:
+                            min_distance = distance
+                            closest_table = (text_block, table)
+                            keyword_text = text_block
+                            keyword_bbox = bbox
+        if closest_table:
+            associated_tables.append(closest_table)
     return associated_tables
 
 # Function to evaluate the quality of extracted tables using heuristics
 def evaluate_extraction(tables):
     scores = []
-    for table in tables:
+    for _, table in tables:
         if not table.empty:
             # Simple heuristic: score based on number of rows and columns
             score = table.shape[0] * table.shape[1]
@@ -80,7 +96,7 @@ def evaluate_extraction(tables):
 # Function to clean and format the extracted tables
 def clean_and_format_tables(tables):
     cleaned_tables = []
-    for table in tables:
+    for text, table in tables:
         if table is None or table.empty:
             continue
         # Drop completely empty rows and columns
@@ -101,18 +117,8 @@ def clean_and_format_tables(tables):
                 except ValueError:
                     print(f"Could not convert column {col} to numeric")
                 
-        cleaned_tables.append(table)
+        cleaned_tables.append((text, table))
     return cleaned_tables
-
-# Function to filter tables for specific data based on keywords
-def filter_tables_for_keywords(tables, keywords, texts_around_tables):
-    filtered_tables = []
-    for associated_text, table in tables:
-        # Check if the table or associated text contains any of the keywords
-        if any(keyword.lower() in associated_text.lower() for keyword in keywords) or \
-           table.apply(lambda row: row.astype(str).str.contains('|'.join(keywords), case=False).any(), axis=1).any():
-            filtered_tables.append((associated_text, table))
-    return filtered_tables
 
 # Function to save extracted tables to Excel
 def save_tables_to_excel(tables, output_path):
@@ -152,17 +158,14 @@ def main(pdf_path, output_excel_path, keywords):
 
     best_tables = best_method[0]
 
+    # Associate tables with surrounding text and select the closest table
+    associated_tables = associate_tables_with_text(best_tables, texts_around_tables, keywords)
+
     # Clean and format tables
-    cleaned_tables = clean_and_format_tables(best_tables)
-
-    # Associate tables with surrounding text
-    associated_tables = associate_tables_with_text(cleaned_tables, texts_around_tables)
-
-    # Filter tables for specific data based on keywords
-    filtered_tables = filter_tables_for_keywords(associated_tables, keywords, texts_around_tables)
+    cleaned_tables = clean_and_format_tables(associated_tables)
 
     # Save cleaned tables to Excel
-    save_tables_to_excel(filtered_tables, output_excel_path)
+    save_tables_to_excel(cleaned_tables, output_excel_path)
 
 # Example usage
 if __name__ == "__main__":
