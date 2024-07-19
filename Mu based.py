@@ -10,7 +10,6 @@ from openpyxl import Workbook
 from openpyxl.utils import get_column_letter
 from openpyxl.comments import Comment
 from tqdm import tqdm
-from concurrent.futures import ProcessPoolExecutor, as_completed
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -165,33 +164,35 @@ def save_tables_to_excel(tables, output_path):
 
 # Main function to orchestrate the process
 def main(pdf_path, output_excel_path):
-    # Extract tables using different methods in parallel
-    logging.info("Starting table extraction...")
-    futures = []
-    with ProcessPoolExecutor() as executor:
-        futures.append(executor.submit(extract_tables_with_pdfplumber, pdf_path))
-        futures.append(executor.submit(extract_tables_with_camelot, pdf_path))
-        futures.append(executor.submit(extract_tables_with_tabula, pdf_path))
+    logging.info("Starting table extraction with pdfplumber...")
+    tables_pdfplumber = extract_tables_with_pdfplumber(pdf_path)
+    if not tables_pdfplumber:
+        logging.error("Pdfplumber extraction failed or returned no tables.")
+
+    logging.info("Starting table extraction with Camelot...")
+    tables_camelot = extract_tables_with_camelot(pdf_path)
+    if not tables_camelot:
+        logging.error("Camelot extraction failed or returned no tables.")
+
+    logging.info("Starting table extraction with Tabula...")
+    tables_tabula = extract_tables_with_tabula(pdf_path)
+    if not tables_tabula:
+        logging.error("Tabula extraction failed or returned no tables.")
     
-        results = []
-        for future in as_completed(futures):
-            try:
-                result = future.result(timeout=600)  # Increase timeout as needed
-                results.append(result)
-            except Exception as e:
-                logging.error(f"Error in one of the extraction methods: {e}")
-    
-    if not results:
-        raise RuntimeError("All extraction methods failed.")
+    tables_list = [tables_pdfplumber, tables_camelot, tables_tabula]
+    tables_list = [tables for tables in tables_list if tables]  # Filter out empty results
+
+    if not tables_list:
+        raise RuntimeError("All extraction methods failed or returned no tables.")
     
     logging.info("Evaluating extraction quality...")
     # Evaluate the quality of each extraction method using heuristics
-    scores = [evaluate_extraction(result) for result in results]
+    scores = [evaluate_extraction(tables) for tables in tables_list]
     
     logging.info("Choosing the best extraction method...")
     # Choose the best extraction method based on heuristic score
     best_index = np.argmax(scores)
-    best_tables = results[best_index]
+    best_tables = tables_list[best_index]
 
     logging.info("Cleaning and formatting tables...")
     # Clean and format tables
@@ -209,4 +210,5 @@ def main(pdf_path, output_excel_path):
 # Example usage
 if __name__ == "__main__":
     pdf_path = '/mnt/data/file-hNrDN4sQ7MsA6yZZ7x0voZ9W'
-    output_excel_path = '
+    output_excel_path = 'isitbetter.xlsx'
+    main(pdf_path, output_excel_path)
