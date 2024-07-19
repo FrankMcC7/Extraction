@@ -135,7 +135,8 @@ class PDFHandler(object):
                     with open(fpath, "wb") as f:
                         outfile.write(f)
                 os.remove(fpath_new)
-            instream.close()
+            # Close the instream in the correct place
+            fileobj.close()
 
     def parse(
         self, flavor="lattice", suppress_stdout=False, layout_kwargs={}, **kwargs
