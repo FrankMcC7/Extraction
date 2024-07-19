@@ -4,7 +4,6 @@ import fitz  # PyMuPDF
 import camelot
 import pdfplumber
 import numpy as np
-from PyPDF2 import PdfReader  # Use PdfReader instead of PdfFileReader
 
 # Function to extract text using PyMuPDF
 def extract_text_with_pymupdf(pdf_path):
