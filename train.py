@@ -8,7 +8,7 @@ from sklearn.decomposition import PCA
 import matplotlib.pyplot as plt
 
 # Load SpaCy model
-nlp = spacy.load("en_core_web_sm")
+nlp = spacy.load("en_core_web_trf")  # Using the transformer model for better embeddings
 
 # Function to extract text from PDF using PyMuPDF
 def extract_text_from_pdf(pdf_path):
@@ -21,6 +21,18 @@ def extract_text_from_pdf(pdf_path):
     
     return text
 
+# Function to preprocess text using SpaCy
+def preprocess_text(text):
+    doc = nlp(text)
+    
+    # Extract tokens, lemmas, entities, and noun chunks
+    tokens = [token.lemma_ for token in doc if not token.is_stop and not token.is_punct]
+    entities = [ent.text for ent in doc.ents]
+    noun_chunks = [chunk.text for chunk in doc.noun_chunks]
+    
+    combined_text = tokens + entities + noun_chunks
+    return " ".join(combined_text)
+
 # Function to process multiple PDFs and collect text data
 def process_bulk_pdfs(pdf_dir):
     texts = []
@@ -29,7 +41,8 @@ def process_bulk_pdfs(pdf_dir):
         if filename.endswith('.pdf'):
             pdf_path = os.path.join(pdf_dir, filename)
             text = extract_text_from_pdf(pdf_path)
-            texts.append(text)
+            preprocessed_text = preprocess_text(text)
+            texts.append(preprocessed_text)
     
     return texts
 
