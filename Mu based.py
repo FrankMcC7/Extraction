@@ -4,6 +4,9 @@ import fitz  # PyMuPDF
 import camelot
 import pdfplumber
 import numpy as np
+import pytesseract
+from pdf2image import convert_from_path
+from PIL import Image
 
 # Function to extract text using PyMuPDF
 def extract_text_with_pymupdf(pdf_path):
@@ -28,6 +31,19 @@ def extract_tables_with_pdfplumber(pdf_path):
 def extract_tables_with_camelot(pdf_path):
     tables = camelot.read_pdf(pdf_path, pages='all', flavor='stream')
     tables = [table.df for table in tables]  # Convert to DataFrame
+    return tables
+
+# Function to extract tables using OCR (Tesseract)
+def extract_tables_with_ocr(pdf_path):
+    tables = []
+    images = convert_from_path(pdf_path)
+    for image in images:
+        text = pytesseract.image_to_string(image, config='--psm 6')
+        lines = text.split('\n')
+        data = [line.split() for line in lines if line.strip()]
+        if data:
+            df = pd.DataFrame(data)
+            tables.append(df)
     return tables
 
 # Function to evaluate the quality of extracted tables using heuristics
@@ -86,14 +102,17 @@ def main(pdf_path, output_excel_path):
     # Extract tables using different methods
     tables_pdfplumber = extract_tables_with_pdfplumber(pdf_path)
     tables_camelot = extract_tables_with_camelot(pdf_path)
+    tables_ocr = extract_tables_with_ocr(pdf_path)
 
     # Evaluate the quality of each extraction method using heuristics
     score_pdfplumber = evaluate_extraction(tables_pdfplumber)
     score_camelot = evaluate_extraction(tables_camelot)
+    score_ocr = evaluate_extraction(tables_ocr)
 
     # Choose the best extraction method based on heuristic score
     best_method = max([(tables_pdfplumber, score_pdfplumber), 
-                       (tables_camelot, score_camelot)], key=lambda x: x[1])
+                       (tables_camelot, score_camelot),
+                       (tables_ocr, score_ocr)], key=lambda x: x[1])
 
     best_tables = best_method[0]
 
