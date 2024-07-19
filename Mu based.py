@@ -1,10 +1,10 @@
-pip install pymupdf camelot-py[cv] pdfplumber openpyxl
 import os
 import pandas as pd
 import fitz  # PyMuPDF
 import camelot
 import pdfplumber
 import numpy as np
+from PyPDF2 import PdfReader  # Use PdfReader instead of PdfFileReader
 
 # Function to extract text using PyMuPDF
 def extract_text_with_pymupdf(pdf_path):
@@ -105,7 +105,7 @@ def main(pdf_path, output_excel_path):
     save_tables_to_excel(cleaned_tables, output_excel_path)
 
 # Example usage
-if __name__:
+if __name__ == "__main__":
     pdf_path = '/mnt/data/Asian-Paints-27-10-2023-khan.pdf'
     output_excel_path = '/mnt/data/labeled_extracted_tables.xlsx'
     main(pdf_path, output_excel_path)
