@@ -165,5 +165,5 @@ def main(pdf_path, output_excel_path):
 # Example usage
 if __name__ == "__main__":
     pdf_path = '/mnt/data/file-xxHEBAdBYpiFDAK8DlMi61ZQ'  # Use the uploaded file path
-    output_excel_path = 'aaa.xlsx'
+    output_excel_path = 'abc.xlsx'
     main(pdf_path, output_excel_path)
