@@ -1,9 +1,7 @@
 import os
-import pandas as pd
 import fitz  # PyMuPDF
 import spacy
-from openpyxl import Workbook
-from openpyxl.writer.excel import save_virtual_workbook
+from collections import defaultdict
 
 # Load SpaCy model
 nlp = spacy.load("en_core_web_sm")
@@ -29,57 +27,46 @@ def analyze_text(text):
     }
     return data
 
-# Function to save extracted data to Excel
-def save_data_to_excel(data, output_path):
-    wb = Workbook()
-    ws = wb.active
-    ws.title = "Extracted Data"
+# Function to answer questions based on the analyzed data
+def answer_question(question, analyzed_data):
+    question_nlp = nlp(question)
+    entities = analyzed_data["Entities"]
+    sentences = analyzed_data["Sentences"]
 
-    # Write sentences
-    ws.append(["Sentences"])
-    for sentence in data["Sentences"]:
-        ws.append([sentence])
-    ws.append([])  # Blank row for separation
-
-    # Write entities
-    ws.append(["Entities", "Label"])
-    for entity, label in data["Entities"]:
-        ws.append([entity, label])
-    ws.append([])  # Blank row for separation
-
-    # Write numbers
-    ws.append(["Numbers"])
-    for number in data["Numbers"]:
-        ws.append([number])
-    ws.append([])  # Blank row for separation
-
-    # Write dates
-    ws.append(["Dates"])
-    for date in data["Dates"]:
-        ws.append([date])
-    ws.append([])  # Blank row for separation
-
-    # Write organizations
-    ws.append(["Organizations"])
-    for org in data["Organizations"]:
-        ws.append([org])
-
-    # Save the workbook
-    wb.save(output_path)
+    answer = []
+    if any(token.lemma_ == "number" or token.lemma_ == "amount" for token in question_nlp):
+        answer = analyzed_data["Numbers"]
+    elif any(token.lemma_ == "date" or token.lemma_ == "time" for token in question_nlp):
+        answer = analyzed_data["Dates"]
+    elif any(token.lemma_ == "organization" or token.lemma_ == "company" for token in question_nlp):
+        answer = analyzed_data["Organizations"]
+    else:
+        # Find relevant sentences
+        question_tokens = set(token.lemma_ for token in question_nlp)
+        for sent in sentences:
+            sent_nlp = nlp(sent)
+            sent_tokens = set(token.lemma_ for token in sent_nlp)
+            if question_tokens & sent_tokens:
+                answer.append(sent)
+    
+    return answer if answer else ["Sorry, I couldn't find an answer to your question."]
 
 # Main function to orchestrate the process
-def main(pdf_path, output_excel_path):
+def main(pdf_path, question):
     # Extract text from PDF
     text = extract_text_from_pdf(pdf_path)
     
     # Analyze text using SpaCy
-    data = analyze_text(text)
+    analyzed_data = analyze_text(text)
     
-    # Save analyzed data to Excel
-    save_data_to_excel(data, output_excel_path)
+    # Answer the question
+    answer = answer_question(question, analyzed_data)
+    return answer
 
 # Example usage
 if __name__ == "__main__":
-    pdf_path = '/mnt/data/file-xxHEBAdBYpiFDAK8DlMi61ZQ'  # Use the uploaded file path
-    output_excel_path = 'extracted_data.xlsx'
-    main(pdf_path, output_excel_path)
+    pdf_path = '/mnt/data/file-P4fJ4Rjb45dm72fLsbZshdRn'  # Use the uploaded file path
+    question = "What are the key dates mentioned in the document?"
+    answer = main(pdf_path, question)
+    for ans in answer:
+        print(ans)
