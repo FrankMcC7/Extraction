@@ -1,7 +1,9 @@
-import os
 import fitz  # PyMuPDF
 import spacy
 from collections import defaultdict
+import numpy as np
+from sklearn.metrics.pairwise import cosine_similarity
+from sklearn.feature_extraction.text import TfidfVectorizer
 
 # Load SpaCy model
 nlp = spacy.load("en_core_web_sm")
@@ -27,6 +29,15 @@ def analyze_text(text):
     }
     return data
 
+# Function to calculate cosine similarity between the question and sentences
+def find_most_relevant_sentences(question, sentences):
+    vectorizer = TfidfVectorizer().fit_transform([question] + sentences)
+    vectors = vectorizer.toarray()
+    cosine_matrix = cosine_similarity(vectors)
+    similarity_scores = cosine_matrix[0][1:]  # Ignore self-similarity
+    most_relevant_indices = similarity_scores.argsort()[-5:][::-1]  # Top 5 sentences
+    return [sentences[i] for i in most_relevant_indices]
+
 # Function to answer questions based on the analyzed data
 def answer_question(question, analyzed_data):
     question_nlp = nlp(question)
@@ -34,20 +45,16 @@ def answer_question(question, analyzed_data):
     sentences = analyzed_data["Sentences"]
 
     answer = []
-    if any(token.lemma_ == "number" or token.lemma_ == "amount" for token in question_nlp):
+    if any(token.lemma_ in ["number", "amount"] for token in question_nlp):
         answer = analyzed_data["Numbers"]
-    elif any(token.lemma_ == "date" or token.lemma_ == "time" for token in question_nlp):
+    elif any(token.lemma_ in ["date", "time"] for token in question_nlp):
         answer = analyzed_data["Dates"]
-    elif any(token.lemma_ == "organization" or token.lemma_ == "company" for token in question_nlp):
+    elif any(token.lemma_ in ["organization", "company"] for token in question_nlp):
         answer = analyzed_data["Organizations"]
     else:
-        # Find relevant sentences
-        question_tokens = set(token.lemma_ for token in question_nlp)
-        for sent in sentences:
-            sent_nlp = nlp(sent)
-            sent_tokens = set(token.lemma_ for token in sent_nlp)
-            if question_tokens & sent_tokens:
-                answer.append(sent)
+        # Find relevant sentences using cosine similarity
+        relevant_sentences = find_most_relevant_sentences(question, sentences)
+        answer = relevant_sentences
     
     return answer if answer else ["Sorry, I couldn't find an answer to your question."]
 
@@ -66,7 +73,16 @@ def main(pdf_path, question):
 # Example usage
 if __name__ == "__main__":
     pdf_path = '/mnt/data/file-P4fJ4Rjb45dm72fLsbZshdRn'  # Use the uploaded file path
-    question = "What are the key dates mentioned in the document?"
-    answer = main(pdf_path, question)
-    for ans in answer:
-        print(ans)
+    questions = [
+        "What are the key dates mentioned in the document?",
+        "Which organizations are mentioned in the document?",
+        "How many numbers are there in the document?",
+        "Tell me more about the document content."
+    ]
+    
+    for question in questions:
+        print(f"Question: {question}")
+        answers = main(pdf_path, question)
+        for ans in answers:
+            print(ans)
+        print("\n" + "="*50 + "\n")
