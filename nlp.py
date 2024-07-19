@@ -1,28 +1,35 @@
 import fitz  # PyMuPDF
-import torch
-from transformers import pipeline, AutoTokenizer, AutoModelForQuestionAnswering
-from sentence_transformers import SentenceTransformer, util
 import spacy
+import pandas as pd
+import camelot
+import tabula
 
 # Load SpaCy model
 nlp = spacy.load("en_core_web_sm")
 
-# Load QA model
-qa_model_name = "distilbert-base-uncased-distilled-squad"
-qa_tokenizer = AutoTokenizer.from_pretrained(qa_model_name)
-qa_model = AutoModelForQuestionAnswering.from_pretrained(qa_model_name)
-
-# Load sentence transformer model for similarity search
-sentence_model = SentenceTransformer('paraphrase-MiniLM-L6-v2')
-
-# Function to extract text from PDF using PyMuPDF
-def extract_text_from_pdf(pdf_path):
+# Function to extract text and tables from PDF using PyMuPDF and table extraction libraries
+def extract_text_and_tables_from_pdf(pdf_path):
     doc = fitz.open(pdf_path)
     text = ""
+    tables = []
+    
     for page_num in range(doc.page_count):
         page = doc.load_page(page_num)
         text += page.get_text("text")
-    return text
+        
+        # Extract tables using camelot
+        camelot_tables = camelot.read_pdf(pdf_path, pages=str(page_num+1), flavor='stream')
+        for table in camelot_tables:
+            if not table.df.empty:
+                tables.append(table.df)
+        
+        # Extract tables using tabula
+        tabula_tables = tabula.read_pdf(pdf_path, pages=page_num+1, multiple_tables=True)
+        for table in tabula_tables:
+            if not table.empty:
+                tables.append(table)
+    
+    return text, tables
 
 # Function to analyze and extract data using SpaCy
 def analyze_text(text):
@@ -36,63 +43,78 @@ def analyze_text(text):
     }
     return data
 
-# Function to perform QA using transformers
-def answer_question_with_qa_model(question, context):
-    qa_pipeline = pipeline('question-answering', model=qa_model, tokenizer=qa_tokenizer)
-    result = qa_pipeline(question=question, context=context)
-    return result['answer']
+# Function to enhance table data with text analysis
+def enhance_tables_with_text(tables, text_analysis):
+    enhanced_tables = []
+    for table in tables:
+        # Convert table to DataFrame if it's not already
+        if not isinstance(table, pd.DataFrame):
+            table = pd.DataFrame(table)
+        
+        # Add new columns for entities, dates, and organizations if not present
+        if "Entities" not in table.columns:
+            table["Entities"] = ""
+        if "Dates" not in table.columns:
+            table["Dates"] = ""
+        if "Organizations" not in table.columns:
+            table["Organizations"] = ""
+        
+        # Enhance table rows with text analysis data
+        for i, row in table.iterrows():
+            entities = [ent[0] for ent in text_analysis["Entities"] if ent[0] in row.to_string()]
+            dates = [date for date in text_analysis["Dates"] if date in row.to_string()]
+            organizations = [org for org in text_analysis["Organizations"] if org in row.to_string()]
+            
+            table.at[i, "Entities"] = ", ".join(entities)
+            table.at[i, "Dates"] = ", ".join(dates)
+            table.at[i, "Organizations"] = ", ".join(organizations)
+        
+        enhanced_tables.append(table)
+    return enhanced_tables
 
-# Function to find the most relevant paragraph for the question
-def find_relevant_paragraph(question, paragraphs):
-    question_embedding = sentence_model.encode(question, convert_to_tensor=True)
-    paragraph_embeddings = sentence_model.encode(paragraphs, convert_to_tensor=True)
-    scores = util.pytorch_cos_sim(question_embedding, paragraph_embeddings)[0]
-    best_idx = torch.argmax(scores).item()
-    return paragraphs[best_idx]
+# Function to save extracted data to Excel
+def save_data_to_excel(data, tables, output_path):
+    with pd.ExcelWriter(output_path, engine='openpyxl') as writer:
+        # Save sentences
+        df_sentences = pd.DataFrame(data["Sentences"], columns=["Sentences"])
+        df_sentences.to_excel(writer, sheet_name="Sentences", index=False)
+        
+        # Save entities
+        df_entities = pd.DataFrame(data["Entities"], columns=["Entity", "Label"])
+        df_entities.to_excel(writer, sheet_name="Entities", index=False)
+        
+        # Save numbers
+        df_numbers = pd.DataFrame(data["Numbers"], columns=["Numbers"])
+        df_numbers.to_excel(writer, sheet_name="Numbers", index=False)
+        
+        # Save dates
+        df_dates = pd.DataFrame(data["Dates"], columns=["Dates"])
+        df_dates.to_excel(writer, sheet_name="Dates", index=False)
+        
+        # Save organizations
+        df_organizations = pd.DataFrame(data["Organizations"], columns=["Organizations"])
+        df_organizations.to_excel(writer, sheet_name="Organizations", index=False)
 
-# Function to answer questions based on the analyzed data
-def answer_question(question, text, analyzed_data):
-    sentences = analyzed_data["Sentences"]
-    
-    # Split text into paragraphs for better context extraction
-    paragraphs = text.split('\n\n')
-    
-    # Find the most relevant paragraph for the question
-    relevant_paragraph = find_relevant_paragraph(question, paragraphs)
-    
-    # Answer the question using the QA model
-    answer = answer_question_with_qa_model(question, relevant_paragraph)
-    
-    return answer
+        # Save enhanced tables
+        for i, table in enumerate(tables, start=1):
+            table.to_excel(writer, sheet_name=f"Enhanced_Table_{i}", index=False)
 
 # Main function to orchestrate the process
-def main(pdf_path, questions):
-    # Extract text from PDF
-    text = extract_text_from_pdf(pdf_path)
+def main(pdf_path, output_excel_path):
+    # Extract text and tables from PDF
+    text, tables = extract_text_and_tables_from_pdf(pdf_path)
     
     # Analyze text using SpaCy
     analyzed_data = analyze_text(text)
     
-    # Answer the questions
-    answers = {}
-    for question in questions:
-        answer = answer_question(question, text, analyzed_data)
-        answers[question] = answer
+    # Enhance tables with text analysis data
+    enhanced_tables = enhance_tables_with_text(tables, analyzed_data)
     
-    return answers
+    # Save analyzed data and enhanced tables to Excel
+    save_data_to_excel(analyzed_data, enhanced_tables, output_excel_path)
 
 # Example usage
 if __name__ == "__main__":
     pdf_path = '/mnt/data/file-P4fJ4Rjb45dm72fLsbZshdRn'  # Use the uploaded file path
-    questions = [
-        "What are the key dates mentioned in the document?",
-        "Which organizations are mentioned in the document?",
-        "How many numbers are there in the document?",
-        "Tell me more about the document content."
-    ]
-    
-    answers = main(pdf_path, questions)
-    for question, answer in answers.items():
-        print(f"Question: {question}")
-        print(f"Answer: {answer}")
-        print("\n" + "="*50 + "\n")
+    output_excel_path = '/mnt/data/analyzed_data_with_enhanced_tables.xlsx'
+    main(pdf_path, output_excel_path)
