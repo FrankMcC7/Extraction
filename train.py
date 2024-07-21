@@ -5,6 +5,7 @@ import os
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.cluster import KMeans
 from sklearn.decomposition import PCA
+from sklearn.metrics import silhouette_score
 import matplotlib.pyplot as plt
 
 # Load SpaCy model
@@ -66,7 +67,7 @@ def cluster_texts(texts, num_clusters=5):
     plt.ylabel('PCA Component 2')
     plt.show()
     
-    return kmeans, vectorizer
+    return kmeans, vectorizer, X
 
 # Function to save clustered text data to Excel
 def save_clustered_data_to_excel(texts, kmeans, vectorizer, output_path):
@@ -81,19 +82,52 @@ def save_clustered_data_to_excel(texts, kmeans, vectorizer, output_path):
             df = pd.DataFrame(texts, columns=["Text"])
             df.to_excel(writer, sheet_name=f"Cluster_{cluster_id}", index=False)
 
+# Function to determine the optimal number of clusters using the Elbow method
+def plot_elbow_method(X):
+    sse = []
+    for k in range(1, 11):
+        kmeans = KMeans(n_clusters=k, random_state=0)
+        kmeans.fit(X)
+        sse.append(kmeans.inertia_)
+    
+    plt.plot(range(1, 11), sse, marker='o')
+    plt.title('Elbow Method')
+    plt.xlabel('Number of clusters')
+    plt.ylabel('SSE')
+    plt.show()
+
+# Function to determine the optimal number of clusters using the Silhouette score
+def plot_silhouette_scores(X):
+    silhouette_scores = []
+    for k in range(2, 11):
+        kmeans = KMeans(n_clusters=k, random_state=0)
+        kmeans.fit(X)
+        score = silhouette_score(X, kmeans.labels_)
+        silhouette_scores.append(score)
+    
+    plt.plot(range(2, 11), silhouette_scores, marker='o')
+    plt.title('Silhouette Scores')
+    plt.xlabel('Number of clusters')
+    plt.ylabel('Silhouette Score')
+    plt.show()
+
 # Main function to orchestrate the process
 def main(pdf_dir, output_excel_path, num_clusters=5):
     # Process multiple PDFs and collect text data
     texts = process_bulk_pdfs(pdf_dir)
     
     # Vectorize text data and apply clustering
-    kmeans, vectorizer = cluster_texts(texts, num_clusters)
+    kmeans, vectorizer, X = cluster_texts(texts, num_clusters)
+    
+    # Plot Elbow method and Silhouette scores
+    plot_elbow_method(X)
+    plot_silhouette_scores(X)
     
     # Save clustered text data to Excel
     save_clustered_data_to_excel(texts, kmeans, vectorizer, output_excel_path)
 
 # Example usage
 if __name__ == "__main__":
-    pdf_dir = '/path/to/your/pdf/folder'  # Set this to your directory containing PDF files
-    output_excel_path = '/path/to/output/analyzed_data_clusters.xlsx'
+    pdf_dir = '/mnt/data'  # Set this to your directory containing PDF files
+    output_excel_path = '/mnt/data/analyzed_data_clusters.xlsx'
     main(pdf_dir, output_excel_path, num_clusters=5)
